@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chordly • Tuner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', system_ui, sans-serif; }
+    .needle { transition: transform 0.1s cubic-bezier(0.4, 0.0, 0.2, 1); }
+    .skin-transition { transition: all 0.4s cubic-bezier(0.4, 0.0, 0.2, 1); }
+    .in-tune { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); } 70% { box-shadow: 0 0 0 15px rgba(16, 185, 129, 0); } }
+  </style>
+</head>
+<body id="body" class="skin-classic bg-zinc-950 text-white min-h-screen pb-8 skin-transition">
+  <div class="max-w-xl mx-auto px-4 pt-6">
+    <!-- Header with Skin Selector -->
+    <div class="flex items-center justify-between mb-8">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 bg-emerald-500 rounded-2xl flex items-center justify-center text-3xl shadow-lg">🎸</div>
+        <div>
+          <h1 class="text-3xl font-bold tracking-tight">Chordly</h1>
+          <p class="text-zinc-400 text-sm -mt-1">Tuner</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Skin Selector -->
+        <div class="relative group">
+          <button onclick="toggleSkinMenu()" class="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 px-4 py-2 rounded-3xl text-sm font-medium border border-zinc-700">
+            <span id="currentSkinName">Classic Dark</span>
+            <i class="fas fa-palette"></i>
+          </button>
+          <!-- Skin Menu -->
+          <div id="skinMenu" class="hidden absolute right-0 mt-2 w-56 bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-700 py-2 z-50">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <button onclick="toggleListening()" id="micBtn"
+          class="flex items-center gap-2.5 bg-emerald-600 hover:bg-emerald-500 px-6 py-3 rounded-3xl font-semibold transition-all active:scale-95">
+          <i class="fas fa-microphone"></i>
+          <span id="micText" class="text-base">Start Listening</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Rest of the UI (Instrument, Tuning, Display, Targets) stays the same but now respects skin colors -->
+    <div class="grid grid-cols-2 gap-4 mb-8">
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-zinc-500 mb-1.5">Instrument</label>
+        <select id="instrumentSelect" onchange="updateTunings()" 
+          class="w-full bg-zinc-900 border border-zinc-800 rounded-3xl px-5 py-4 text-lg focus:outline-none focus:border-emerald-500 skin-transition">
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs uppercase tracking-widest text-zinc-500 mb-1.5">Tuning</label>
+        <select id="tuningSelect" onchange="loadTargets()" 
+          class="w-full bg-zinc-900 border border-zinc-800 rounded-3xl px-5 py-4 text-lg focus:outline-none focus:border-emerald-500 skin-transition">
+        </select>
+      </div>
+    </div>
+
+    <!-- Main Display -->
+    <div id="mainDisplay" class="bg-zinc-900 rounded-3xl p-8 shadow-inner border border-zinc-800 mb-8 skin-transition">
+      <div class="text-center">
+        <div id="noteDisplay" class="text-8xl font-bold tabular-nums tracking-tighter mb-1">—</div>
+        <div id="freqDisplay" class="font-medium text-xl">— Hz</div>
+      </div>
+
+      <!-- Gauge -->
+      <div class="relative w-72 h-72 mx-auto mt-6 mb-4">
+        <svg class="w-full h-full -rotate-90" viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="82" fill="none" stroke="#27272a" stroke-width="28"/>
+          <circle id="gaugeArc" cx="100" cy="100" r="82" fill="none" stroke="#10b981" 
+            stroke-width="28" stroke-dasharray="515" stroke-dashoffset="257" stroke-linecap="round"/>
+          <line id="needle" x1="100" y1="100" x2="100" y2="28" 
+            stroke="#eab308" stroke-width="7" stroke-linecap="round" class="needle"/>
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <div id="centsDisplay" class="text-6xl font-semibold tabular-nums">0</div>
+        </div>
+      </div>
+      <div id="status" class="text-center font-medium text-lg">Ready to tune</div>
+    </div>
+
+    <!-- Targets -->
+    <div>
+      <p class="uppercase text-xs tracking-widest text-zinc-500 mb-4 px-1">Target Notes</p>
+      <div id="targetsList" class="grid grid-cols-2 gap-3">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== SKINS ====================
+    const SKINS = {
+      classic: { 
+        name: "Classic Dark", 
+        icon: "🌑",
+        body: "bg-zinc-950",
+        display: "bg-zinc-900 border-zinc-800",
+        accent: "emerald",
+        needle: "#eab308",
+        gauge: "#10b981",
+        text: "text-white"
+      },
+      neon: { 
+        name: "Neon Glow", 
+        icon: "🌈",
+        body: "bg-black",
+        display: "bg-zinc-950 border-cyan-500",
+        accent: "cyan",
+        needle: "#22d3ee",
+        gauge: "#67e8f9",
+        text: "text-cyan-300"
+      },
+      retro: { 
+        name: "Retro Wood", 
+        icon: "🪵",
+        body: "bg-amber-950",
+        display: "bg-amber-900 border-amber-700",
+        accent: "amber",
+        needle: "#fbbf24",
+        gauge: "#fcd34d",
+        text: "text-amber-100"
+      },
+      ocean: { 
+        name: "Ocean", 
+        icon: "🌊",
+        body: "bg-slate-950",
+        display: "bg-slate-900 border-sky-600",
+        accent: "sky",
+        needle: "#38bdf8",
+        gauge: "#0ea5e9",
+        text: "text-sky-200"
+      },
+      purple: { 
+        name: "Electric Purple", 
+        icon: "⚡",
+        body: "bg-violet-950",
+        display: "bg-violet-900 border-violet-600",
+        accent: "violet",
+        needle: "#c026d3",
+        gauge: "#d946ef",
+        text: "text-violet-200"
+      }
+    };
+
+    let currentSkin = "classic";
+
+    function applySkin(skinKey) {
+      currentSkin = skinKey;
+      const skin = SKINS[skinKey];
+      
+      document.getElementById("body").className = `skin-${skinKey} ${skin.body} text-white min-h-screen pb-8 skin-transition`;
+      document.getElementById("mainDisplay").className = `${skin.display} rounded-3xl p-8 shadow-inner border skin-transition`;
+      
+      // Update gauge colors via JS (since Tailwind colors vary)
+      document.getElementById("gaugeArc").setAttribute("stroke", skin.gauge);
+      document.getElementById("needle").setAttribute("stroke", skin.needle);
+      document.getElementById("centsDisplay").className = `text-6xl font-semibold tabular-nums ${skin.text}`;
+      
+      // Save preference
+      localStorage.setItem("chordlySkin", skinKey);
+      
+      // Update menu button
+      document.getElementById("currentSkinName").innerHTML = `${skin.icon} ${skin.name}`;
+    }
+
+    function toggleSkinMenu() {
+      const menu = document.getElementById("skinMenu");
+      menu.classList.toggle("hidden");
+      
+      if (!menu.hasChildNodes()) {
+        menu.innerHTML = Object.keys(SKINS).map(key => {
+          const s = SKINS[key];
+          return `
+            <button onclick="applySkin('${key}'); toggleSkinMenu()" 
+              class="w-full px-5 py-3 text-left hover:bg-zinc-800 flex items-center gap-3 ${currentSkin === key ? 'bg-zinc-800' : ''}">
+              <span class="text-2xl">${s.icon}</span>
+              <span>${s.name}</span>
+            </button>
+          `;
+        }).join("");
+      }
+    }
+
+    // ==================== Rest of the tuner code (same as before) ====================
+    const INSTRUMENTS = { /* ... same as previous version ... */ 
+      guitar: { name: "Guitar", tunings: {
+        "Standard": ["E2", "A2", "D3", "G3", "B3", "E4"],
+        "Open A": ["E2", "A2", "C#3", "E3", "A3", "E4"],
+        "Open D": ["D2", "A2", "D3", "F#3", "A3", "D4"],
+        "Open E": ["E2", "B2", "E3", "G#3", "B3", "E4"],
+        "Drop D": ["D2", "A2", "D3", "G3", "B3", "E4"],
+        "DADGAD": ["D2", "A2", "D3", "G3", "A3", "D4"]
+      }},
+      violin: { name: "Violin", tunings: { "Standard": ["G3", "D4", "A4", "E5"] }},
+      cello: { name: "Cello", tunings: { "Standard": ["C2", "G2", "D3", "A3"] }},
+      ukulele: { name: "Ukulele", tunings: { "Standard": ["G4", "C4", "E4", "A4"] }},
+      bass: { name: "Bass Guitar", tunings: { "Standard": ["E1", "A1", "D2", "G2"] }},
+      chromatic: { name: "Chromatic", tunings: { "Any Note": [] }}
+    };
+
+    const NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+    function freqToNote(freq) { /* same as before */ 
+      if (freq <= 0) return { note: "—", cents: 0 };
+      const h = Math.round(12 * Math.log2(freq / 440));
+      const octave = 4 + Math.floor(h / 12);
+      const noteIdx = (9 + h) % 12;
+      const targetFreq = 440 * Math.pow(2, h / 12);
+      const cents = Math.round(1200 * Math.log2(freq / targetFreq));
+      return { note: `${NOTES[noteIdx]}${octave}`, cents };
+    }
+
+    function noteToFreq(note) { /* same */ 
+      const noteName = note.slice(0, -1);
+      const octave = parseInt(note.slice(-1));
+      const idx = NOTES.indexOf(noteName);
+      return 440 * Math.pow(2, (idx - 9 + 12 * (octave - 4)) / 12);
+    }
+
+    let audioContext, scriptProcessor, stream;
+    let isListening = false;
+    let currentTargets = [];
+
+    function populateInstruments() { /* same as before */ 
+      const select = document.getElementById("instrumentSelect");
+      select.innerHTML = Object.keys(INSTRUMENTS).map(key => 
+        `<option value="${key}">${INSTRUMENTS[key].name}</option>`
+      ).join("");
+    }
+
+    function updateTunings() { /* same */ 
+      const instrKey = document.getElementById("instrumentSelect").value;
+      const tuningSelect = document.getElementById("tuningSelect");
+      const tunings = INSTRUMENTS[instrKey].tunings;
+      tuningSelect.innerHTML = Object.keys(tunings).map(t => 
+        `<option value="${t}">${t}</option>`
+      ).join("");
+      loadTargets();
+    }
+
+    function loadTargets() { /* same */ 
+      const instrKey = document.getElementById("instrumentSelect").value;
+      const tuningName = document.getElementById("tuningSelect").value;
+      currentTargets = INSTRUMENTS[instrKey].tunings[tuningName] || [];
+      
+      const container = document.getElementById("targetsList");
+      container.innerHTML = currentTargets.map(note => `
+        <div id="card-${note}" class="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 text-center transition-all skin-transition">
+          <div class="text-4xl font-semibold mb-1">${note}</div>
+          <div id="status-${note}" class="text-xs font-medium text-zinc-400">—</div>
+        </div>
+      `).join("") || `<div class="col-span-2 text-center py-12 text-zinc-500">Play any note</div>`;
+    }
+
+    function detectPitch(buffer) { /* same reliable detection */ 
+      const SIZE = buffer.length;
+      let bestOffset = -1, bestCorrelation = 0, rms = 0;
+      for (let i = 0; i < SIZE; i++) rms += buffer[i] * buffer[i];
+      rms = Math.sqrt(rms / SIZE);
+      if (rms < 0.015) return 0;
+
+      for (let offset = Math.floor(SIZE * 0.02); offset < SIZE * 0.45; offset++) {
+        let correlation = 0;
+        for (let i = 0; i < SIZE - offset; i++) {
+          correlation += Math.abs(buffer[i] - buffer[i + offset]);
+        }
+        correlation = 1 - (correlation / (SIZE - offset));
+        if (correlation > bestCorrelation) {
+          bestCorrelation = correlation;
+          bestOffset = offset;
+        }
+      }
+      return bestCorrelation > 0.28 ? audioContext.sampleRate / bestOffset : 0;
+    }
+
+    function startAudio() { /* same, with minor skin-friendly updates */ 
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+        .then(s => {
+          stream = s;
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const source = audioContext.createMediaStreamSource(stream);
+          scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
+
+          scriptProcessor.onaudioprocess = (e) => {
+            const input = e.inputBuffer.getChannelData(0);
+            const freq = detectPitch(input);
+            
+            if (freq > 60 && freq < 2000) {
+              const { note, cents } = freqToNote(freq);
+              document.getElementById("noteDisplay").textContent = note;
+              document.getElementById("freqDisplay").textContent = `${freq.toFixed(1)} Hz`;
+
+              const clamped = Math.max(-50, Math.min(50, cents));
+              const degrees = clamped * 1.8;
+              document.getElementById("needle").setAttribute("transform", `rotate(${degrees} 100 100)`);
+              document.getElementById("centsDisplay").textContent = cents >= 0 ? `+${cents}` : cents;
+
+              if (currentTargets.length > 0) {
+                let closest = currentTargets[0];
+                let minDiff = Infinity;
+                currentTargets.forEach(t => {
+                  const diff = Math.abs(freq - noteToFreq(t));
+                  if (diff < minDiff) { minDiff = diff; closest = t; }
+                });
+
+                currentTargets.forEach(t => {
+                  const card = document.getElementById(`card-${t}`);
+                  const status = document.getElementById(`status-${t}`);
+                  if (t === closest) {
+                    card.classList.add('border-emerald-500', 'in-tune');
+                    status.textContent = Math.abs(cents) < 8 ? "IN TUNE" : "CLOSE";
+                    status.className = Math.abs(cents) < 8 ? "text-xs font-medium text-emerald-400" : "text-xs font-medium text-yellow-400";
+                  } else {
+                    card.classList.remove('border-emerald-500', 'in-tune');
+                    status.textContent = "—";
+                    status.className = "text-xs font-medium text-zinc-400";
+                  }
+                });
+              }
+            }
+          };
+
+          source.connect(scriptProcessor);
+          scriptProcessor.connect(audioContext.destination);
+          isListening = true;
+          document.getElementById("micText").innerHTML = `<i class="fas fa-pause"></i> Listening`;
+        })
+        .catch(() => alert("Microphone access needed"));
+    }
+
+    function toggleListening() { /* same */ 
+      if (isListening) {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        if (scriptProcessor) scriptProcessor.disconnect();
+        isListening = false;
+        document.getElementById("micText").innerHTML = `<i class="fas fa-microphone"></i> Start Listening`;
+      } else {
+        startAudio();
+      }
+    }
+
+    // Init
+    window.onload = () => {
+      populateInstruments();
+      updateTunings();
+      
+      // Load saved skin or default
+      const savedSkin = localStorage.getItem("chordlySkin") || "classic";
+      applySkin(savedSkin);
+    };
+  </script>
+</body>
+</html>
